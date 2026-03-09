@@ -1,0 +1,265 @@
+---
+title: "Usuarios de lenguas extranjeras"
+author: "Jessica Espinosa"
+format: html
+editor: visual
+---
+
+```{r}
+library("forecast")   
+library("tidyverse")
+library("tseries")
+library("scales")
+```
+
+```{r}
+head(Data)
+```
+
+
+```{r}
+usuarios_anuales <- Data %>%
+  group_by(fecha) %>%
+  summarise(
+    usuarios = sum(cenlex_hombres + cenlex_mujeres +
+                   celex_hombres  + celex_mujeres,
+                   na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(fecha)
+
+cat("\nTotal de usuarios por año:\n")
+print(data)
+```
+
+```{r}
+par(mfrow = c(1, 3))
+usuarios_ts <- ts(
+  data      = data$usuarios,   
+  frequency = 1,               
+  start     = c(2020, 1)       
+)
+
+cat("\n Serie de tiempo creada \n")
+print(usuarios_ts)
+```
+
+```{r}
+log_usuarios_ts <- log(usuarios_ts)
+
+cat("\nSerie con logaritmo (log_usuarios_ts):\n")
+print(round(log_usuarios_ts, 3))
+```
+
+```{r}
+cat("\n Dummies estacionales \n")
+cat("Con frequency=1 (anual) seasonaldummy() no genera columnas.\n")
+cat("Dummy manual: 0=2020-2021, 1=2023-2024\n\n")
+
+dummy_manual <- matrix(
+  c(0, 0, 0, 1, 1),          
+  ncol = 1,
+  dimnames = list(NULL, "recuperacion")
+)
+
+cat("x_dummies_log (dummy manual):\n")
+print(data.frame(anio = 2020:2024, recuperacion = dummy_manual[,1]))
+
+x_dummies_log <- dummy_manual   
+
+```
+
+```{r}
+#Diferenciacion logaritmica
+
+diff_log_usuarios_ts <- diff(log_usuarios_ts)
+
+cat("\n Tasas de crecimiento (diff_log_usuarios_ts) \n")
+tasas <- round(as.numeric(diff_log_usuarios_ts) * 100, 1)
+periodos <- c("2020-2021", "2021-2022", "2022-2023", "2023-2024")
+for (i in 1:4) {
+  icono <- ifelse(tasas[i] > 0, "sube", "baja")
+  cat(sprintf("  %s:  %+.1f%%  %s\n", periodos[i], tasas[i], icono))
+}
+```
+
+```{r}
+
+dummy_diff_manual <- matrix(
+  c(0, 0, 1, 1),              
+  ncol = 1,
+  dimnames = list(NULL, "recuperacion")
+)
+
+x_dummies_diff_log <- dummy_diff_manual
+
+cat("\nx_dummies_diff_log (diferenciada):\n")
+print(data.frame(periodo = periodos, recuperacion = dummy_diff_manual[,1]))
+```
+
+```{r}
+
+plot(usuarios_ts,
+     main = "Serie de Usuarios en niveles",   
+     xlab = "Año",
+     ylab = "Total de personas",
+     col  = "#1565C0",
+     lwd  = 2.5,
+     type = "o",
+     pch  = 16,
+     cex  = 1.5,
+     axes = FALSE,
+     ylim = c(0, max(usuarios_ts) * 1.12))
+axis(1, at = 2020:2024, labels = 2020:2024, cex.axis = 0.85)
+axis(2, at = axTicks(2), labels = format(axTicks(2), big.mark = ","))
+grid(col = "gray85", lty = "dotted")
+text(2020:2024, as.numeric(usuarios_ts),
+     format(round(usuarios_ts), big.mark = ","),
+     pos = 3, cex = 0.72, col = "#0D47A1", font = 2)
+abline(lm(as.numeric(usuarios_ts) ~ c(2020:2024)),
+       col = "red", lty = 2, lwd = 1.5)
+
+
+plot(log_usuarios_ts,
+     main = "Serie del Log_Usuarios",         
+     xlab = "Año",
+     ylab = "Usuarios",
+     col  = "#6A1B9A",
+     lwd  = 2.5,
+     type = "o",
+     pch  = 16,
+     cex  = 1.5,
+     axes = FALSE)
+axis(1, at = 2020:2024, labels = 2020:2024, cex.axis = 0.85)
+axis(2, cex.axis = 0.85)
+box()
+grid(col = "gray85", lty = "dotted")
+text(2020:2024, as.numeric(log_usuarios_ts),
+     round(log_usuarios_ts, 2),
+     pos = 3, cex = 0.72, col = "#4A148C", font = 2)
+abline(lm(as.numeric(log_usuarios_ts) ~ c(2020:2024)),
+       col = "red", lty = 2, lwd = 1.5)
+
+
+plot(diff_log_usuarios_ts,
+     main = "Serie del Diff_Log_Usuarios",    
+     xlab = "Año",
+     ylab = "% crecimiento",
+     col  = "#1B5E20",
+     lwd  = 2.5,
+     type = "o",
+     pch  = 16,
+     cex  = 1.5,
+     axes = FALSE,
+     ylim = c(min(diff_log_usuarios_ts) - 0.05,
+              max(diff_log_usuarios_ts) + 0.08))
+axis(1, at = 2021:2024, labels = 2021:2024, cex.axis = 0.85)
+axis(2, cex.axis = 0.85)
+box()
+grid(col = "gray85", lty = "dotted")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+text(2021:2024, as.numeric(diff_log_usuarios_ts),
+     paste0(ifelse(as.numeric(diff_log_usuarios_ts) > 0, "+", ""),
+            round(as.numeric(diff_log_usuarios_ts) * 100, 1), "%"),
+     pos = 3, cex = 0.80, col = "#1B5E20", font = 2)
+
+
+```
+
+
+```{r}
+cat("\n MODELO ARIMAX(1,0,1) con dummy\n")
+cat("Diferencia entre 2023 y 2024\n\n")
+
+model <- arima(
+  diff_log_usuarios_ts,           
+  order = c(1, 0, 1),             
+  xreg  = x_dummies_diff_log      
+)
+
+cat("Resultados:\n")
+print(summary(model))
+
+```
+
+```{r}
+cat("\nConclusion\n")
+
+coefs     <- coef(model)
+nombres   <- names(coefs)
+sigma_val <- sqrt(model$sigma2)
+
+cat("\nCoeficientes del modelo:\n")
+for (i in seq_along(coefs)) {
+  cat(sprintf("  %-20s = %+.4f\n", nombres[i], coefs[i]))
+}
+
+cat("\nResultados:\n")
+cat("  ar1          → ¿cuánto influye el crecimiento del año pasado?\n")
+cat("                 Negativo = baja\n")
+cat("  ma1          → ¿cuánto corrige el error del año pasado?\n")
+cat("  recuperacion → ¿cuánto más crecen los años futuros?\n")
+cat("                 Positivo = 2023 y 2024 crecieron significativamente\n")
+cat(sprintf("\n  Sigma (error promedio): %.4f  ≈  %.1f%% de error\n",
+            sigma_val, sigma_val * 100))
+
+cat("\nAIC del ARIMA:  ", round(AIC(model_arima), 2), "\n")
+cat("AIC del ARIMAX: ", round(AIC(model), 2), "\n")
+cat("El modelo con MENOR AIC es el mejor\n")
+```
+
+
+```{r}
+# Hacemos una grafica de lo observado vs ajustado + residuales
+
+ajustados <- as.numeric(diff_log_usuarios_ts) - as.numeric(residuals(model))
+plot(2021:2024, as.numeric(diff_log_usuarios_ts),
+     type = "o", pch = 16, cex = 1.8,
+     col  = "#1565C0", lwd = 2.5,
+     main = "Observado vs Ajustado por ARIMAX",
+     xlab = "Año", ylab = "Tasa de crecimiento",
+     ylim = range(c(as.numeric(diff_log_usuarios_ts), ajustados)) +
+            c(-0.03, 0.05),
+     axes = FALSE)
+lines(2021:2024, ajustados, type = "o", pch = 17,
+      col = "#C62828", lwd = 2.5, cex = 1.8, lty = 2)
+axis(1, at = 2021:2024, labels = 2021:2024)
+axis(2)
+box(); grid(col = "gray88", lty = "dotted")
+abline(h = 0, col = "gray60", lty = 3)
+legend("topright",
+       legend = c("Observado (real)", "Ajustado (modelo)"),
+       col    = c("#1565C0", "#C62828"),
+       lty    = c(1, 2), lwd = 2, pch = c(16, 17),
+       bty    = "n", cex = 0.85)
+
+plot(2021:2024, as.numeric(res),
+     type = "h", lwd = 4,
+     col  = ifelse(as.numeric(res) >= 0, "#1B5E20", "#B71C1C"),
+     main = "Residuales del modelo\n(errores que cometió)",
+     xlab = "Año", ylab = "Error",
+     axes = FALSE,
+     ylim = c(min(res) - 0.01, max(res) + 0.03))
+points(2021:2024, as.numeric(res), pch = 16, cex = 1.8,
+       col = ifelse(as.numeric(res) >= 0, "#1B5E20", "#B71C1C"))
+abline(h = 0, col = "black", lwd = 1.5)
+axis(1, at = 2021:2024, labels = 2021:2024)
+axis(2)
+box(); grid(col = "gray88", lty = "dotted")
+text(2021:2024, as.numeric(res),
+     round(as.numeric(res), 3),
+     pos = ifelse(as.numeric(res) >= 0, 3, 1),
+     cex = 0.85, font = 2,
+     col = ifelse(as.numeric(res) >= 0, "#1B5E20", "#B71C1C"))
+mtext("Verde = el modelo se quedó corto | Rojo = el modelo se pasó",
+      side = 1, line = 4, cex = 0.65, col = "gray40")
+
+
+```
+
+
+
+
+
+
+
